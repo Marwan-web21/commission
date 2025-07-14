@@ -1,73 +1,69 @@
 import streamlit as st
 import pandas as pd
 
-if "sales_data" not in st.session_state:
-    st.session_state.sales_data = []
+st.title("Sales Commission Calculator")
 
-if "people" not in st.session_state:
-    st.session_state.people = {
-        "Sara": {"supervisor": "Moaz", "manager": "Marwan", "gm": "Gaber"},
-        "Yousef": {"supervisor": "Helal", "manager": "Marwan", "gm": "Gaber"},
-        "Monem": {"supervisor": "Moaz", "manager": "Marwan", "gm": "Gaber"},
-        "Mazn Gaber": {"supervisor": "Helal", "manager": "Marwan", "gm": "Gaber"},
-        "Mazn": {"supervisor": "Helal", "manager": "Marwan", "gm": "Gaber"},
-        "Helal": {"supervisor": None, "manager": "Marwan", "gm": "Gaber"},
-        "Moaz": {"supervisor": None, "manager": "Marwan", "gm": "Gaber"},
-        "Marwan": {"supervisor": None, "manager": None, "gm": "Gaber"},
-        "Gaber": {"supervisor": None, "manager": None, "gm": None},
-    }
+# Define the roles
+roles = ["Sales", "Supervisor", "Team Leader", "Sales Manager", "General Manager"]
 
-ROLE_COMMISSIONS = {
-    "Supervisor": 0.05,
-    "Sales Manager": 0.10,
-    "General Manager": 0.05
-}
+# Role selection (enable/disable roles)
+st.sidebar.header("Enable Roles")
+active_roles = {role: st.sidebar.checkbox(role, value=True) for role in roles}
 
-st.title("🧮 Sales Commission Calculator")
+# Input sales entries
+st.header("Enter Sales Data")
+sales_data = []
+num_entries = st.number_input("Number of Sales Entries", min_value=1, step=1)
 
-with st.form("sale_form"):
-    seller = st.selectbox("Seller", list(st.session_state.people.keys()))
-    sale_amount = st.number_input("Sale Amount (for info only)", value=0.0)
-    net_commission = st.number_input("Net Commission", value=0.0)
-    seller_percent = st.slider("Seller %", 0, 100, 30)
-    submitted = st.form_submit_button("Add Sale")
+for i in range(int(num_entries)):
+    st.subheader(f"Sale #{i+1}")
+    net_commission = st.number_input(f"Net Commission for Sale #{i+1}", key=f"net_{i}", min_value=0.0)
 
-    if submitted:
-        st.session_state.sales_data.append({
-            "seller": seller,
-            "net_commission": net_commission,
-            "seller_percent": seller_percent / 100.0
-        })
-        st.success(f"Sale added for {seller}")
+    people = {}
+    for role in roles:
+        if active_roles[role]:
+            name = st.text_input(f"{role} Name for Sale #{i+1}", key=f"{role}_{i}")
+            percent = st.number_input(f"{role} % for Sale #{i+1}", key=f"{role}_pct_{i}", min_value=0.0, max_value=1.0, step=0.01)
+            people[role] = {"name": name, "percent": percent}
 
-totals = {name: 0.0 for name in st.session_state.people}
+    sales_data.append({"net_commission": net_commission, "people": people})
 
-for sale in st.session_state.sales_data:
-    amount = sale["net_commission"]
-    seller = sale["seller"]
-    pct = sale["seller_percent"]
+# Process and generate report
+if st.button("Generate Report"):
+    results = {}
+    total_commission = 0.0
+    total_distributed = 0.0
 
-    totals[seller] += round(amount * pct, 2)
+    for sale in sales_data:
+        net = sale["net_commission"]
+        total_commission += net
+        for role, info in sale["people"].items():
+            name = info["name"]
+            pct = info["percent"]
+            if name:
+                amount = round(net * pct, 2)
+                total_distributed += amount
+                if name not in results:
+                    results[name] = 0
+                results[name] += amount
 
-    sup = st.session_state.people[seller]["supervisor"]
-    if sup:
-        totals[sup] += round(amount * ROLE_COMMISSIONS["Supervisor"], 2)
+    # Prepare DataFrame
+    report = [{"Name": name, "Total Commission": round(value, 2)} for name, value in results.items()]
+    df = pd.DataFrame(report)
 
-    mgr = st.session_state.people[seller]["manager"]
-    if mgr:
-        totals[mgr] += round(amount * ROLE_COMMISSIONS["Sales Manager"], 2)
+    # Net left to company
+    company_left = round(total_commission - total_distributed, 2)
+    company_pct = round((company_left / total_commission) * 100, 2) if total_commission > 0 else 0
 
-    gm = st.session_state.people[seller]["gm"]
-    if gm:
-        totals[gm] += round(amount * ROLE_COMMISSIONS["General Manager"], 2)
+    st.subheader("Commission Report")
+    st.table(df)
 
-report = [{"Name": n, "Total Commission": round(v, 2)} for n, v in totals.items() if v > 0]
-st.subheader("📊 Commission Report")
-st.table(pd.DataFrame(report))
+    st.write(f"**Total Commission Payout:** {total_distributed} ")
+    st.write(f"**Company Net Commission:** {company_left} ({company_pct}%)")
 
-st.download_button(
-    "Download CSV",
-    data=pd.DataFrame(report).to_csv(index=False),
-    file_name="commission_report.csv",
-    mime="text/csv"
-)
+    st.download_button(
+        label="Download Report as CSV",
+        data=df.to_csv(index=False),
+        file_name="commission_report.csv",
+        mime="text/csv"
+    )
