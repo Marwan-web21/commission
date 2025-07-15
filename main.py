@@ -6,14 +6,18 @@ import uuid
 import os
 
 st.set_page_config(layout="wide")
+
+# ---------- Session State Defaults ----------
 if "page" not in st.session_state:
     st.session_state.page = "home"
 if "teams" not in st.session_state:
-    st.session_state.teams = {}  # team_id: {"name": str, "photo": bytes, "members": [...]}
+    st.session_state.teams = {}  # team_id: {name, photo, members: [{name, role}]}
 if "deals" not in st.session_state:
-    st.session_state.deals = []  # list of dicts
+    st.session_state.deals = []
+if "new_team_members" not in st.session_state:
+    st.session_state.new_team_members = []
 
-# ------------- Utility Functions ----------------
+# ---------- Helper Functions ----------
 def save_team(name, photo, members):
     team_id = str(uuid.uuid4())
     st.session_state.teams[team_id] = {
@@ -21,6 +25,7 @@ def save_team(name, photo, members):
         "photo": photo.read() if photo else None,
         "members": members
     }
+    return team_id
 
 def add_deal(team_id, net_commission, role_data):
     st.session_state.deals.append({
@@ -29,130 +34,123 @@ def add_deal(team_id, net_commission, role_data):
         "roles": role_data
     })
 
-# ------------- Sidebar Navigation ---------------
+# ---------- Sidebar Navigation ----------
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Home", "📁 Portfolios", "🧮 Commission Calculator", "📊 Teams Report"])
 st.session_state.page = page
 
-# ------------- Page: HOME -----------------------
+# ---------- Home ----------
 if page == "🏠 Home":
-    st.markdown("<h1 style='text-align:center;'>💼 Welcome to Commission Tracker</h1>", unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### 🧮 Commission Calculator")
-        st.write("Track and distribute commissions easily.")
-    with col2:
-        st.markdown("### 📁 Teams Portfolio")
-        st.write("Manage teams, assign roles and track performance.")
+    st.title("💼 Welcome to Commission Tracker")
+    st.write("Choose an option from the left menu to get started.")
 
-# ------------- Page: PORTFOLIOS -----------------
+# ---------- Portfolios ----------
 elif page == "📁 Portfolios":
-    st.title("📁 Manage Portfolios")
-    with st.expander("➕ Add New Team", expanded=True):
+    st.title("📁 Team Portfolios")
+
+    with st.expander("➕ Create a New Team", expanded=True):
         team_name = st.text_input("Team Name")
         team_photo = st.file_uploader("Upload Team Logo (optional)", type=["png", "jpg", "jpeg"])
-        members = []
 
-        st.markdown("#### Add Team Members")
-        role_types = ["Sales", "Supervisor", "Team Leader"]
-        add_member = st.button("➕ Add Sales")
-        if "new_members" not in st.session_state:
-            st.session_state.new_members = []
+        st.subheader("Add Team Members")
+        add_member_btn = st.button("➕ Add Member")
+        if add_member_btn:
+            st.session_state.new_team_members.append({"name": "", "role": "Sales"})
 
-        for i, mem in enumerate(st.session_state.new_members):
-            st.text_input(f"Name for Member {i+1}", key=f"member_{i}_name")
-            st.selectbox("Role", role_types, key=f"member_{i}_role")
-
-        if add_member:
-            st.session_state.new_members.append({})
+        updated_members = []
+        for i, member in enumerate(st.session_state.new_team_members):
+            cols = st.columns([3, 2, 1])
+            with cols[0]:
+                name = st.text_input("Member Name", key=f"member_{i}_name")
+            with cols[1]:
+                role = st.selectbox("Role", ["Sales", "Supervisor", "Team Leader"], key=f"member_{i}_role")
+            with cols[2]:
+                if st.button("❌ Remove", key=f"remove_{i}"):
+                    st.session_state.new_team_members.pop(i)
+                    st.rerun()
+            if name:
+                updated_members.append({"name": name, "role": role})
 
         if st.button("✅ Save Team"):
-            saved_members = []
-            for i in range(len(st.session_state.new_members)):
-                name = st.session_state.get(f"member_{i}_name", "")
-                role = st.session_state.get(f"member_{i}_role", "Sales")
-                if name:
-                    saved_members.append({"name": name, "role": role})
-            save_team(team_name, team_photo, saved_members)
-            st.success("Team saved!")
-            st.rerun()
+            team_id = save_team(team_name, team_photo, updated_members)
+            st.session_state.new_team_members.clear()
+            st.success(f"Team '{team_name}' added successfully!")
 
-    st.markdown("### Your Teams")
-    cols = st.columns(3)
-    for i, (tid, team) in enumerate(st.session_state.teams.items()):
-        col = cols[i % 3]
-        with col:
-            if team["photo"]:
-                st.image(Image.open(pd.io.common.BytesIO(team["photo"])), width=100)
-            st.markdown(f"**{team['name']}**")
-            if st.button("View", key=f"view_{tid}"):
-                st.session_state.selected_team = tid
-                st.session_state.page = "📊 Teams Report"
-                st.rerun()
+    st.markdown("---")
+    st.markdown("### 🧑‍🤝‍🧑 Your Teams")
+    for team_id, team in st.session_state.teams.items():
+        with st.expander(f"{team['name']}"):
+            cols = st.columns([1, 3])
+            with cols[0]:
+                if team["photo"]:
+                    st.image(Image.open(pd.io.common.BytesIO(team["photo"])), width=100)
+            with cols[1]:
+                for role in ["Sales", "Supervisor", "Team Leader"]:
+                    names = [m["name"] for m in team["members"] if m["role"] == role]
+                    if names:
+                        st.markdown(f"**{role}s:**")
+                        st.write(", ".join(names))
 
-# ------------- Page: TEAMS REPORT ----------------
-elif page == "📊 Teams Report":
-    st.title("📊 Team Performance")
-    team_id = st.session_state.get("selected_team")
-    if not team_id:
-        st.warning("No team selected.")
-    else:
-        team = st.session_state.teams[team_id]
-        st.image(Image.open(pd.io.common.BytesIO(team["photo"])), width=120)
-        st.subheader(f"Team: {team['name']}")
+            # Mini-report
+            st.markdown("#### 📊 Team Report")
+            team_deals = [d for d in st.session_state.deals if d["team_id"] == team_id]
+            total = sum([d["net_commission"] for d in team_deals])
+            st.write(f"Total Deals: {len(team_deals)}")
+            st.write(f"Total Net Commission: {total:.2f}")
 
-        team_deals = [d for d in st.session_state.deals if d["team_id"] == team_id]
-        total_commission = sum(d["net_commission"] for d in team_deals)
-        distributed = 0
-        results = {}
-
-        for d in team_deals:
-            net = d["net_commission"]
-            for role, info in d["roles"].items():
-                name, pct = info["name"], info["percent"] / 100
-                if name:
-                    amount = round(net * pct, 2)
-                    results[name] = results.get(name, 0) + amount
-                    distributed += amount
-
-        company_share = total_commission - distributed
-        pct_left = (company_share / total_commission * 100) if total_commission else 0
-
-        df = pd.DataFrame([{"Name": k, "Commission": round(v, 2)} for k, v in results.items()])
-        st.table(df)
-        st.write(f"**Company Net Commission:** {company_share} ({round(pct_left, 2)}%)")
-
-        # Pie chart
-        if not df.empty:
-            chart_data = df.set_index("Name")
-            chart_data.loc["Company"] = company_share
-            st.pyplot(chart_data.plot.pie(y="Commission", autopct="%1.1f%%", figsize=(5, 5)).figure)
-
-# ------------- Page: COMMISSION CALCULATOR -----------------
+# ---------- Commission Calculator ----------
 elif page == "🧮 Commission Calculator":
     st.title("🧮 Commission Calculator")
+    if not st.session_state.teams:
+        st.warning("No teams available. Please add one in the Portfolio section.")
+    else:
+        selected_team = st.selectbox("Select Team", list(st.session_state.teams.keys()), format_func=lambda k: st.session_state.teams[k]["name"])
+        net = st.number_input("Net Commission", min_value=0.0)
+        st.markdown("#### Select Roles Involved")
 
-    selected_team = st.selectbox("Select Team", options=st.session_state.teams.keys(), format_func=lambda x: st.session_state.teams[x]["name"])
-    net_commission = st.number_input("Net Commission Amount", min_value=0.0, step=10.0)
-    st.markdown("#### Select Roles Involved")
-    roles_enabled = {}
-    role_fields = {}
+        role_inputs = {}
+        total_pct = 0
+        for role in ["Sales", "Supervisor", "Team Leader"]:
+            enabled = st.checkbox(f"Include {role}", value=(role == "Sales"))
+            if enabled:
+                name = st.text_input(f"{role} Name")
+                pct = st.number_input(f"{role} % Share", min_value=0.0, max_value=100.0)
+                total_pct += pct
+                role_inputs[role] = {"name": name, "percent": pct}
 
-    for role in ["Sales", "Supervisor", "Team Leader", "Sales Manager", "General Manager"]:
-        roles_enabled[role] = st.checkbox(role, value=True if role == "Sales" else False)
+        if total_pct > 100:
+            st.error("Total percentage exceeds 100%!")
+        elif st.button("✅ Add Deal"):
+            add_deal(selected_team, net, role_inputs)
+            st.success("Deal added successfully!")
+            st.rerun()
 
-    st.markdown("#### Fill Role Information")
-    for role, enabled in roles_enabled.items():
-        if enabled:
-            name = st.text_input(f"{role} Name")
-            pct = st.number_input(f"{role} % Share", min_value=0.0, max_value=100.0)
-            role_fields[role] = {"name": name, "percent": pct}
+# ---------- Teams Report ----------
+elif page == "📊 Teams Report":
+    st.title("📈 Teams Report Summary")
+    for team_id, team in st.session_state.teams.items():
+        with st.expander(team["name"]):
+            team_deals = [d for d in st.session_state.deals if d["team_id"] == team_id]
+            total_commission = sum(d["net_commission"] for d in team_deals)
+            distributed = 0
+            breakdown = {}
 
-    # Validation
-    total_pct = sum([v["percent"] for k, v in role_fields.items() if roles_enabled[k]])
-    if total_pct > 100:
-        st.warning("⚠️ Total percentage exceeds 100%")
-    elif st.button("➕ Add Deal"):
-        add_deal(selected_team, net_commission, role_fields)
-        st.success("Deal added successfully!")
-        st.rerun()
+            for d in team_deals:
+                for role, info in d["roles"].items():
+                    name = info["name"]
+                    pct = info["percent"] / 100
+                    amount = round(d["net_commission"] * pct, 2)
+                    distributed += amount
+                    breakdown[name] = breakdown.get(name, 0) + amount
+
+            company_share = total_commission - distributed
+            st.write(f"Net Commission: {total_commission:.2f}")
+            st.write(f"Distributed: {distributed:.2f}")
+            st.write(f"Company Net: {company_share:.2f} ({(company_share/total_commission*100 if total_commission else 0):.2f}%)")
+
+            df = pd.DataFrame([{"Name": k, "Commission": round(v, 2)} for k, v in breakdown.items()])
+            st.table(df)
+            if not df.empty:
+                chart = df.set_index("Name")
+                chart.loc["Company"] = company_share
+                st.pyplot(chart.plot.pie(y="Commission", autopct="%1.1f%%", figsize=(5,5)).figure)
