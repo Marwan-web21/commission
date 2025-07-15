@@ -79,7 +79,7 @@ elif page == "📁 Portfolios":
     st.markdown("---")
     st.markdown("### 🧑‍🤝‍🧑 Your Teams")
     for team_id, team in st.session_state.teams.items():
-        with st.expander(f"{team['name']}"):
+        with st.expander(team["name"]):
             cols = st.columns([1, 3])
             with cols[0]:
                 if team["photo"]:
@@ -105,6 +105,8 @@ elif page == "🧮 Commission Calculator":
         st.warning("No teams available. Please add one in the Portfolio section.")
     else:
         selected_team = st.selectbox("Select Team", list(st.session_state.teams.keys()), format_func=lambda k: st.session_state.teams[k]["name"])
+        team_members = st.session_state.teams[selected_team]["members"]
+
         net = st.number_input("Net Commission", min_value=0.0)
         st.markdown("#### Select Roles Involved")
 
@@ -113,10 +115,12 @@ elif page == "🧮 Commission Calculator":
         for role in ["Sales", "Supervisor", "Team Leader"]:
             enabled = st.checkbox(f"Include {role}", value=(role == "Sales"))
             if enabled:
-                name = st.text_input(f"{role} Name")
-                pct = st.number_input(f"{role} % Share", min_value=0.0, max_value=100.0)
-                total_pct += pct
-                role_inputs[role] = {"name": name, "percent": pct}
+                role_names = [m["name"] for m in team_members if m["role"] == role]
+                if role_names:
+                    name = st.selectbox(f"Select {role}", role_names, key=f"select_{role}")
+                    pct = st.number_input(f"{role} % Share", min_value=0.0, max_value=100.0, key=f"pct_{role}")
+                    total_pct += pct
+                    role_inputs[role] = {"name": name, "percent": pct}
 
         if total_pct > 100:
             st.error("Total percentage exceeds 100%!")
